@@ -4,11 +4,9 @@ import httpx
 from telegram import Update
 from telegram.ext import Application, ContextTypes, CommandHandler, MessageHandler, filters
 
-# ========== AYARLAR (Railway Variables'dan) ==========
 TOKEN = os.getenv("TOKEN")
 SE_USER = os.getenv("SE_USER")
 SE_SECRET = os.getenv("SE_SECRET")
-# =====================================================
 
 PHONE_REGEX = re.compile(r'(\+90|0)?\s*5\d{2}\s*\d{3}\s*\d{2}\s*\d{2}')
 TC_REGEX = re.compile(r'\b[1-9]\d{10}\b')
@@ -50,7 +48,6 @@ async def nsfw_kontrol(file_id: str, context: ContextTypes.DEFAULT_TYPE) -> bool
         print(f"Sightengine kontrol hatası: {e}")
         return False
 
-
 async def komut_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Merhaba! Bu bot, grupta +18 içerik, TCKN ve telefon numaralarını otomatik siler. "
@@ -60,39 +57,42 @@ async def komut_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def filtrele(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or msg.chat.type not in ["group", "supergroup"]:
-        # Grup dışı sohbetleri işlemez
         return
 
-    # EN KRİTİK KORUMA: Yönetici/Creator ise hiçbir işleme yapılmasın
+    # Yönetici veya kurucuysa dokunma
     try:
         member = await msg.chat.get_member(msg.from_user.id)
-        if member.status in ("administrator", "creator"):  # compare string, NOT lists
+        if member.status in ("administrator", "creator"):
             return
     except Exception as e:
-        print(f"Üye kontrol hatası (skip): {e}")
-        return  # üye bilgisi alınamıyorsa güvenlik için hiçbir işlem yapmıyoruz
+        print(f"Üye durumu alınamadı: {e}")
+        return
 
-    # --- METİN KONTROLÜ ---
+    # Metin kontrolü
     text = (msg.text or "") + (msg.caption or "")
     if PHONE_REGEX.search(text):
         await msg.delete()
         return
-
     for tc in TC_REGEX.findall(text):
         if tckn_dogrula(tc):
             await msg.delete()
             return
 
-    # --- MEDYA KONTROLÜ ---
+    # Medya kontrolü
     try:
+        print(f"Medya türü: {type(msg.effective_attachment)}")  # Debug satırı
+
         if msg.photo:
             if await nsfw_kontrol(msg.photo[-1].file_id, context):
                 await msg.delete()
         elif msg.animation:  # GIF
             if await nsfw_kontrol(msg.animation.file_id, context):
                 await msg.delete()
+        elif msg.video:  # VİDEO (EKLENDİ!)
+            if await nsfw_kontrol(msg.video.file_id, context):
+                await msg.delete()
         elif msg.sticker:
-            if msg.sticker.is_video or msg.sticker.is_animated:  # .tgs/webm genelde taranamaz
+            if msg.sticker.is_video or msg.sticker.is_animated:
                 await msg.delete()
             elif await nsfw_kontrol(msg.sticker.file_id, context):
                 await msg.delete()
@@ -101,15 +101,10 @@ async def filtrele(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     if not TOKEN:
-        raise ValueError("TOKEN bulunamadı! Railway Variables kısmını kontrol et.")
+        raise ValueError("TOKEN bulunamadı!")
     app = Application.builder().token(TOKEN).build()
-
-    # Komut handler
     app.add_handler(CommandHandler("start", komut_start))
-
-    # Genel mesaj filtresi (bu, /start ve diğer mesajları kapsar)
     app.add_handler(MessageHandler(filters.ALL, filtrele))
-
     print("Bot Başlatıldı... Grupları düzenleyerek korumaya hazır.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
