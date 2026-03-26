@@ -2,13 +2,13 @@ import re
 import os
 import httpx
 from telegram import Update
-from telegram.ext import Application, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, ContextTypes, CommandHandler, MessageHandler, filters
 
-# ========== AYARLAR (Railway Variables'dan gelir) ==========
+# ========== AYARLAR (Railway Variables'dan) ==========
 TOKEN = os.getenv("TOKEN")
 SE_USER = os.getenv("SE_USER")
 SE_SECRET = os.getenv("SE_SECRET")
-# ==========================================================
+# =====================================================
 
 PHONE_REGEX = re.compile(r'(\+90|0)?\s*5\d{2}\s*\d{3}\s*\d{2}\s*\d{2}')
 TC_REGEX = re.compile(r'\b[1-9]\d{10}\b')
@@ -26,7 +26,7 @@ def tckn_dogrula(tckn: str) -> bool:
 async def nsfw_kontrol(file_id: str, context: ContextTypes.DEFAULT_TYPE) -> bool:
     try:
         file = await context.bot.get_file(file_id)
-        file_url = file.file_path  # telegram direkt URL verir
+        file_url = file.file_path
         if not file_url.startswith("http"):
             file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_url}"
 
@@ -47,25 +47,33 @@ async def nsfw_kontrol(file_id: str, context: ContextTypes.DEFAULT_TYPE) -> bool
                     n.get("erotica", 0) > 0.7)
         return False
     except Exception as e:
-        print(f"Sightengine hata: {e}")
+        print(f"Sightengine kontrol hatası: {e}")
         return False
+
+
+async def komut_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Merhaba! Bu bot, grupta +18 içerik, TCKN ve telefon numaralarını otomatik siler. "
+        "Yöneticiler kontrol edilmez."
+    )
 
 async def filtrele(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or msg.chat.type not in ["group", "supergroup"]:
+        # Grup dışı sohbetleri işlemez
         return
 
-    # Admin kontrolü
+    # EN KRİTİK KORUMA: Yönetici/Creator ise hiçbir işleme yapılmasın
     try:
         member = await msg.chat.get_member(msg.from_user.id)
-        if member.status in ["administrator", "creator"]:
+        if member.status in ("administrator", "creator"):  # compare string, NOT lists
             return
-    except:
-        return
+    except Exception as e:
+        print(f"Üye kontrol hatası (skip): {e}")
+        return  # üye bilgisi alınamıyorsa güvenlik için hiçbir işlem yapmıyoruz
 
     # --- METİN KONTROLÜ ---
     text = (msg.text or "") + (msg.caption or "")
-    
     if PHONE_REGEX.search(text):
         await msg.delete()
         return
@@ -84,19 +92,25 @@ async def filtrele(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if await nsfw_kontrol(msg.animation.file_id, context):
                 await msg.delete()
         elif msg.sticker:
-            if msg.sticker.is_video or msg.sticker.is_animated: # .tgs/.webm taranamaz, direkt sil
+            if msg.sticker.is_video or msg.sticker.is_animated:  # .tgs/webm genelde taranamaz
                 await msg.delete()
             elif await nsfw_kontrol(msg.sticker.file_id, context):
                 await msg.delete()
     except Exception as e:
-        print(f"Silme hata: {e}")
+        print(f"Silme/analiz hatası: {e}")
 
 def main():
     if not TOKEN:
         raise ValueError("TOKEN bulunamadı! Railway Variables kısmını kontrol et.")
     app = Application.builder().token(TOKEN).build()
+
+    # Komut handler
+    app.add_handler(CommandHandler("start", komut_start))
+
+    # Genel mesaj filtresi (bu, /start ve diğer mesajları kapsar)
     app.add_handler(MessageHandler(filters.ALL, filtrele))
-    print("Bot Başlatıldı... Grupları korumaya hazır.")
+
+    print("Bot Başlatıldı... Grupları düzenleyerek korumaya hazır.")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
