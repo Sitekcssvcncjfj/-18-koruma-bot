@@ -37,11 +37,11 @@ def tckn_dogrula(tckn: str) -> bool:
 
 async def nsfw_kontrol(file_id: str, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """
-    Sightengine API ile fotoğraf/video/gif/sticker analiz ederek çıplaklık/NSFW algılar.
+    Sightengine API ile fotoğraf/gif/sticker analiz ederek çıplaklık/NSFW algılar.
     """
     try:
         file = await context.bot.get_file(file_id)
-        file_url = file.file_path  # Telegram direkt dosya yolunu sağlar
+        file_url = file.file_path
         if not file_url.startswith("http"):
             file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_url}"
 
@@ -58,7 +58,6 @@ async def nsfw_kontrol(file_id: str, context: ContextTypes.DEFAULT_TYPE) -> bool
 
         if data.get("status") == "success":
             n = data.get("nudity", {})
-            # Yüksek hassasiyetli NSFW ölçütleri
             return (
                 n.get("sexual_activity", 0) > 0.7 or 
                 n.get("sexual_display", 0) > 0.7 or 
@@ -71,7 +70,7 @@ async def nsfw_kontrol(file_id: str, context: ContextTypes.DEFAULT_TYPE) -> bool
 
 async def komut_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Merhaba! Bu bot, grupta +18 içerik (foto/video/GIF/sticker), TCKN ve telefon numaralarını otomatik siler. "
+        "Merhaba! Bu bot, grupta +18 içerik (foto/GIF/sticker), videolar, TCKN ve telefon numaralarını otomatik siler. "
         "Yöneticiler kontrol edilmez."
     )
 
@@ -94,54 +93,54 @@ async def filtrele(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if PHONE_REGEX.search(text):
         await msg.delete()
-        print(f"Telefon silindi: {text} | Kullanıcı: {msg.from_user.username or msg.from_user.id}")
+        print(f"📵 Telefon numarası silindi: {text} | Kullanıcı: {msg.from_user.username or msg.from_user.id}")
         return
 
     tckn_list = TC_REGEX.findall(text)
     for tc in tckn_list:
         if tckn_dogrula(tc):
             await msg.delete()
-            print(f"TCKN silindi: {tc} | Kullanıcı: {msg.from_user.username or msg.from_user.id}")
+            print(f"🆔 TCKN silindi: {tc} | Kullanıcı: {msg.from_user.username or msg.from_user.id}")
             return
 
     # --- MEDYA KONTROLÜ: +18 (FOTO / GIF / VIDEO / STICKER) ---
     try:
-        print(f"Medya türü tespit edildi: {msg.effective_attachment}")
-
         if msg.photo:
             if await nsfw_kontrol(msg.photo[-1].file_id, context):
                 await msg.delete()
-                print(f"Fotoğraf silindi (NSFW) | Kullanıcı: {msg.from_user.username or msg.from_user.id}")
+                print(f"🖼️ Fotoğraf silindi (NSFW) | Kullanıcı: {msg.from_user.username or msg.from_user.id}")
+        
         elif msg.animation:  # GIF
             if await nsfw_kontrol(msg.animation.file_id, context):
                 await msg.delete()
-                print(f"GIF silindi (NSFW) | Kullanıcı: {msg.from_user.username or msg.from_user.id}")
+                print(f"🎬 GIF silindi (NSFW) | Kullanıcı: {msg.from_user.username or msg.from_user.id}")
+        
         elif msg.video:
-            if await nsfw_kontrol(msg.video.file_id, context):
-                await msg.delete()
-                print(f"Video silindi (NSFW) | Kullanıcı: {msg.from_user.username or msg.from_user.id}")
+            # ⚠️ TÜM VIDEOLAR SİLİNİR (Sightengine güvenilir değil + tehlikeli)
+            await msg.delete()
+            print(f"🎥 Video silindi (GÜVENLIK POLİTİKASI) | Kullanıcı: {msg.from_user.username or msg.from_user.id}")
+        
         elif msg.sticker:
             if msg.sticker.is_video or msg.sticker.is_animated:
                 await msg.delete()
-                print(f"Sticker (video/animasyon) silindi | Kullanıcı: {msg.from_user.username or msg.from_user.id}")
+                print(f"🎨 Sticker (animasyon) silindi | Kullanıcı: {msg.from_user.username or msg.from_user.id}")
             elif await nsfw_kontrol(msg.sticker.file_id, context):
                 await msg.delete()
-                print(f"Sticker silindi (NSFW) | Kullanıcı: {msg.from_user.username or msg.from_user.id}")
+                print(f"🎨 Sticker silindi (NSFW) | Kullanıcı: {msg.from_user.username or msg.from_user.id}")
+    
     except Exception as e:
-        print(f"Medya silme/analiz hatası: {e}")
+        print(f"❌ Medya silme/analiz hatası: {e}")
 
 def main():
     if not TOKEN:
         raise ValueError("TOKEN bulunamadı! Railway Variables'a ekle.")
     app = Application.builder().token(TOKEN).build()
     
-    # Komut handler
     app.add_handler(CommandHandler("start", komut_start))
-    
-    # Genel mesaj handler
     app.add_handler(MessageHandler(filters.ALL, filtrele))
     
-    print("Bot Başlatıldı... Loglar aktif (TCKN/Telefon/+18 medya için silme hazır).")
+    print("✅ Bot Başlatıldı... Loglar aktif.")
+    print("🛡️ Koruma: TCKN / Telefon / +18 Fotoğraf / +18 GIF / TÜM VIDEOLAR / Sticker")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
